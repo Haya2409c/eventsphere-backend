@@ -1,0 +1,163 @@
+### 1. Register Attendee
+POST http://localhost:5000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "Asha Lohana",
+  "email": "asha@eventsphere.com",
+  "password": "123456",
+  "role": "attendee",
+  "interests": ["AI", "Web Development"]
+}
+### 2. Register Exhibitor
+POST http://localhost:5000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "TechCorp Expo",
+  "email": "exhibitor@eventsphere.com",
+  "password": "123456",
+  "role": "exhibitor",
+  "companyName": "TechCorp Solutions",
+  "companyCategory": "Artificial Intelligence"
+}
+### 3. Register Admin
+POST http://localhost:5000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "Super Admin",
+  "email": "admin@eventsphere.com",
+  "password": "123456",
+  "role": "admin"
+}
+### 4. Login Admin
+# @name adminLogin
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@eventsphere.com",
+  "password": "123456"
+}
+
+### 5. Admin: View All Registered Users
+GET http://localhost:5000/api/users
+Authorization: Bearer {{adminLogin.response.body.token}}
+
+
+
+### A. Login as Admin (Get Authentication Token)
+# @name adminLogin
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@eventsphere.com",
+  "password": "123456"
+}
+
+
+### B. Create a New Expo (Admin Only)
+# @name newExpo
+POST http://localhost:5000/api/expos
+Content-Type: application/json
+Authorization: Bearer {{adminLogin.response.body.token}}
+
+{
+  "title": "Pakistan Tech & AI Expo 2026",
+  "description": "Annual technology exhibition and developer summit",
+  "theme": "AI & Web Development",
+  "location": "Expo Center Karachi",
+  "startDate": "2026-12-15",
+  "endDate": "2026-12-17"
+}
+
+
+### C. Get All Expos with Search (Public Access)
+# Search expos by title
+GET http://localhost:5000/api/expos?search=Tech
+
+
+### D. Create a New Booth for the Expo (Admin Only)
+# @name newBooth
+POST http://localhost:5000/api/booths
+Content-Type: application/json
+Authorization: Bearer {{adminLogin.response.body.token}}
+
+{
+  "expo": "{{newExpo.response.body._id}}",
+  "boothNumber": "A-101",
+  "floorSection": "Hall 1 - AI Zone",
+  "size": "12x12 ft"
+}
+
+
+### E. Create a New Session or Workshop (Admin Only)
+# @name newSession
+POST http://localhost:5000/api/sessions
+Content-Type: application/json
+Authorization: Bearer {{adminLogin.response.body.token}}
+
+{
+  "expo": "{{newExpo.response.body._id}}",
+  "title": "Building Full-Stack AI Apps with MERN",
+  "description": "Hands-on workshop on integrating AI into React & Node",
+  "speakerName": "Dr. Kamran Ahmed",
+  "topic": "AI",
+  "hallLocation": "Main Auditorium",
+  "date": "2026-12-15",
+  "startTime": "11:00 AM",
+  "endTime": "12:30 PM"
+}
+
+### ==========================================
+### ATTENDEE, SEARCH & FEEDBACK API TESTS
+### ==========================================
+
+
+### F. Login as Attendee (Get Authentication Token)
+# @name attendeeLogin
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "asha@eventsphere.com",
+  "password": "123456"
+}
+
+
+### G. Register for an Expo (Attendee Only)
+# Link the attendee's digital pass with the selected expo
+POST http://localhost:5000/api/attendee/register-expo/{{newExpo.response.body._id}}
+Authorization: Bearer {{attendeeLogin.response.body.token}}
+
+
+### H. Add a Session to Personal Schedule (Attendee Only)
+# Bookmark the selected session
+POST http://localhost:5000/api/attendee/bookmark-session/{{newSession.response.body._id}}
+Authorization: Bearer {{attendeeLogin.response.body.token}}
+
+
+### I. View Personal Schedule and Recommended Sessions
+# Get bookmarked sessions and personalized recommendations
+GET http://localhost:5000/api/attendee/my-schedule
+Authorization: Bearer {{attendeeLogin.response.body.token}}
+
+
+### J. Submit Feedback for an Expo (Attendee Only)
+POST http://localhost:5000/api/feedback
+Content-Type: application/json
+Authorization: Bearer {{attendeeLogin.response.body.token}}
+
+{
+  "expo": "{{newExpo.response.body._id}}",
+  "rating": 5,
+  "comment": "Amazing AI workshops and smooth digital pass entry!"
+}
+
+
+### K. View All Submitted Feedback (Admin Only)
+GET http://localhost:5000/api/feedback
+Authorization: Bearer {{adminLogin.response.body.token}}
+
