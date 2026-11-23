@@ -4,7 +4,6 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 
 dotenv.config();
-connectDB();
 
 const app = express();
 
@@ -17,11 +16,20 @@ app.use(cors({
 
 app.use(express.json());
 
-// Role #1: Auth & User Routes
+// Har request se pehle DB connection ensure karein (Serverless safe)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error("DB Connection Error:", err);
+    res.status(500).json({ message: "Database connection failed", error: err.message });
+  }
+});
+
+// Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
-
-// Role #4: Expo, Booth, Exhibitor, Attendee, Sessions, Search & Feedback APIs
 app.use('/api', require('./routes/expoBoothRoutes'));
 app.use('/api', require('./routes/sessionAttendeeRoutes'));
 app.use('/api/feedback', require('./routes/feedbackRoutes'));
