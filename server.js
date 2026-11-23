@@ -8,14 +8,12 @@ connectDB();
 
 const app = express();
 
-// CORS Setup (Frontend aur saare Vercel preview links allow karne ke liye)
 app.use(cors({
   origin: true,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
-app.options('*', cors());
 
 app.use(express.json());
 
@@ -32,11 +30,9 @@ app.get('/', (req, res) => {
   res.send('🚀 EventSphere Management API is running...');
 });
 
-// Local development ke liye
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => console.log(`🔥 Server running on port ${PORT}`));
 }
 
-// Vercel ke liye zaroori export
 module.exports = app;
