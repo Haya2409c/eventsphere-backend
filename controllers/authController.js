@@ -1,6 +1,7 @@
 
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { rejectMissing, sendError } = require('../utils/validate');
 
 // Generate login token for the user
 const generateToken = (id, role) => {
@@ -27,8 +28,31 @@ exports.registerUser = async (req, res) => {
             companyCategory
         } = req.body;
 
+        if (rejectMissing(res, req.body, ['name', 'email', 'password'])) return;
+
+        // Must be plain text, not objects like { "$ne": null } (NoSQL injection)
+        if ([name, email, password].some((value) => typeof value !== 'string')) {
+            return res.status(400).json({
+                message: 'Name, email and password must be text'
+            });
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({
+                message: 'Please enter a valid email'
+            });
+        }
+
+        // Only attendee or exhibitor can sign up. Admins are made by the seed script.
+        const allowedRoles = ['attendee', 'exhibitor'];
+        if (role !== undefined && !allowedRoles.includes(role)) {
+            return res.status(400).json({
+                message: 'Role must be attendee or exhibitor'
+            });
+        }
+
         // Check if email is already registered
-        const existingUser = await User.findOne({ email });
+        const existingUser = await User.findOne({ email: email.trim().toLowerCase() });
 
         if (existingUser) {
             return res.status(400).json({
@@ -64,9 +88,7 @@ exports.registerUser = async (req, res) => {
         });
 
     } catch (error) {
-        res.status(500).json({
-            message: error.message
-        });
+        sendError(res, error);
     }
 };
 
@@ -78,8 +100,17 @@ exports.loginUser = async (req, res) => {
 
         const { email, password } = req.body;
 
+        if (rejectMissing(res, req.body, ['email', 'password'])) return;
+
+        // Must be plain text, not objects like { "$ne": null } (NoSQL injection)
+        if (typeof email !== 'string' || typeof password !== 'string') {
+            return res.status(400).json({
+                message: 'Email and password must be text'
+            });
+        }
+
         // Find user by email
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email: email.trim().toLowerCase() });
 
         // Check email and password
         if (user && await user.matchPassword(password)) {
@@ -110,9 +141,7 @@ exports.loginUser = async (req, res) => {
         }
 
     } catch (error) {
-        res.status(500).json({
-            message: error.message
-        });
+        sendError(res, error);
     }
 };
 

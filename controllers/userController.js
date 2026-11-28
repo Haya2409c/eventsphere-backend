@@ -1,5 +1,6 @@
 
 const User = require('../models/User');
+const { sendError } = require('../utils/validate');
 
 
 // Update user profile and interests
@@ -35,9 +36,7 @@ exports.updateProfile = async (req, res) => {
         });
 
     } catch (error) {
-        res.status(500).json({
-            message: error.message
-        });
+        sendError(res, error);
     }
 };
 
@@ -55,9 +54,7 @@ exports.getAllUsers = async (req, res) => {
         res.json(users);
 
     } catch (error) {
-        res.status(500).json({
-            message: error.message
-        });
+        sendError(res, error);
     }
 };
 
@@ -89,14 +86,16 @@ exports.updateUserStatus = async (req, res) => {
         // Save changes in database
         await user.save();
 
+        // Never send the password hash back
+        const safeUser = user.toObject();
+        delete safeUser.password;
+
         res.json({
             message: 'User status updated successfully',
-            user
+            user: safeUser
         });
 
     } catch (error) {
-        res.status(500).json({
-            message: error.message
-        });
+        sendError(res, error);
     }
 };

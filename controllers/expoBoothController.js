@@ -2,6 +2,9 @@
 const Expo = require('../models/Expo');
 const Booth = require('../models/Booth');
 const User = require('../models/User');
+const Session = require('../models/Session');
+const Feedback = require('../models/Feedback');
+const { escapeRegex, rejectMissing, sendError } = require('../utils/validate');
 
 // Create a new expo (Admin only)
 const createExpo = async (req, res) => {
@@ -15,6 +18,10 @@ const createExpo = async (req, res) => {
       endDate,
     } = req.body;
 
+    if (rejectMissing(res, req.body, [
+      'title', 'description', 'theme', 'location', 'startDate', 'endDate',
+    ])) return;
+
     const expo = await Expo.create({
       title,
       description,
@@ -27,7 +34,7 @@ const createExpo = async (req, res) => {
 
     res.status(201).json(expo);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
   }
 };
 
@@ -41,7 +48,7 @@ const getAllExpos = async (req, res) => {
     // Search expos by title
     if (search) {
       query.title = {
-        $regex: search,
+        $regex: escapeRegex(search),
         $options: 'i',
       };
     }
@@ -49,7 +56,7 @@ const getAllExpos = async (req, res) => {
     // Filter expos by theme
     if (theme) {
       query.theme = {
-        $regex: theme,
+        $regex: escapeRegex(theme),
         $options: 'i',
       };
     }
@@ -61,7 +68,75 @@ const getAllExpos = async (req, res) => {
 
     res.json(expos);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
+  }
+};
+
+// Fields an admin may set on an expo
+const EXPO_FIELDS = ['title', 'description', 'theme', 'location', 'startDate', 'endDate'];
+
+// Get one expo by its ID
+const getExpoById = async (req, res) => {
+  try {
+    const expo = await Expo.findById(req.params.id).populate('createdBy', 'name email');
+
+    if (!expo) {
+      return res.status(404).json({ message: 'Expo not found' });
+    }
+
+    res.json(expo);
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Update an expo (Admin only). Only the fields sent are changed.
+const updateExpo = async (req, res) => {
+  try {
+    const expo = await Expo.findById(req.params.id);
+
+    if (!expo) {
+      return res.status(404).json({ message: 'Expo not found' });
+    }
+
+    EXPO_FIELDS.forEach((field) => {
+      if (req.body[field] !== undefined) expo[field] = req.body[field];
+    });
+
+    // save() runs the model's checks, so an empty title still gets a 400
+    await expo.save();
+
+    res.json(expo);
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Delete an expo and its booths + sessions (Admin only)
+const deleteExpo = async (req, res) => {
+  try {
+    const expo = await Expo.findById(req.params.id);
+
+    if (!expo) {
+      return res.status(404).json({ message: 'Expo not found' });
+    }
+
+    // Delete the children first: if this fails, the expo is still there to retry
+    const [booths, sessions] = await Promise.all([
+      Booth.deleteMany({ expo: expo._id }),
+      Session.deleteMany({ expo: expo._id }),
+      Feedback.deleteMany({ expo: expo._id }),
+    ]);
+
+    await expo.deleteOne();
+
+    res.json({
+      message: 'Expo deleted',
+      deletedBooths: booths.deletedCount,
+      deletedSessions: sessions.deletedCount,
+    });
+  } catch (error) {
+    sendError(res, error);
   }
 };
 
@@ -75,6 +150,8 @@ const createBooth = async (req, res) => {
       size,
     } = req.body;
 
+    if (rejectMissing(res, req.body, ['expo', 'boothNumber'])) return;
+
     const booth = await Booth.create({
       expo,
       boothNumber,
@@ -84,7 +161,7 @@ const createBooth = async (req, res) => {
 
     res.status(201).json(booth);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
   }
 };
 
@@ -100,7 +177,7 @@ const getBoothsByExpo = async (req, res) => {
 
     res.json(booths);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
   }
 };
 
@@ -142,7 +219,7 @@ const requestBooth = async (req, res) => {
       booth,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
   }
 };
 
@@ -157,14 +234,16 @@ const approveBooth = async (req, res) => {
       });
     }
 
+    // Only a request waiting for approval can be approved or rejected
+    if (booth.status !== 'pending' || !booth.exhibitor) {
+      return res.status(400).json({ message: 'This booth has no pending request' });
+    }
+
     // Update booth status
     booth.status = req.body.status || 'booked';
 
     // Clear exhibitor details if the request is rejected
-    if (booth.status === 'available') {
-      booth.exhibitor = null;
-      booth.productsShowcase = '';
-    }
+    if (booth.status === 'available') clearBooth(booth);
 
     await booth.save();
 
@@ -173,7 +252,154 @@ const approveBooth = async (req, res) => {
       booth,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
+  }
+};
+
+// Fields an admin may set on a booth
+const BOOTH_FIELDS = ['boothNumber', 'floorSection', 'size', 'status'];
+
+// Empty a booth so it can be booked again
+const clearBooth = (booth) => {
+  booth.status = 'available';
+  booth.exhibitor = null;
+  booth.productsShowcase = '';
+  booth.staff = [];
+};
+
+// Edit a booth or assign an exhibitor to it (Admin only)
+// Send exhibitor: "<userId>" to assign (booth becomes booked), or exhibitor: null to free it.
+const updateBooth = async (req, res) => {
+  try {
+    const booth = await Booth.findById(req.params.id);
+
+    if (!booth) {
+      return res.status(404).json({ message: 'Booth not found' });
+    }
+
+    BOOTH_FIELDS.forEach((field) => {
+      if (req.body[field] !== undefined) booth[field] = req.body[field];
+    });
+
+    const { exhibitor: exhibitorId, status } = req.body;
+
+    // Refuse mixed-up requests instead of quietly picking one meaning
+    if (exhibitorId === null && status !== undefined && status !== 'available') {
+      return res.status(400).json({ message: 'A pending or booked booth needs an exhibitor' });
+    }
+    if (status === 'available' && exhibitorId) {
+      return res.status(400).json({ message: 'An available booth cannot have an exhibitor' });
+    }
+
+    if (exhibitorId === null || status === 'available') {
+      clearBooth(booth);
+    } else if (exhibitorId !== undefined) {
+      const exhibitor = await User.findById(exhibitorId);
+
+      if (!exhibitor || exhibitor.role !== 'exhibitor') {
+        return res.status(400).json({ message: 'Exhibitor not found' });
+      }
+
+      // New owner: don't keep the old company's products and staff
+      if (!exhibitor._id.equals(booth.exhibitor)) {
+        booth.productsShowcase = '';
+        booth.staff = [];
+      }
+
+      booth.exhibitor = exhibitor._id;
+      // Assigning directly means booked, unless the admin chose a status
+      if (req.body.status === undefined) booth.status = 'booked';
+    }
+
+    // A pending or booked booth must belong to someone
+    if (booth.status !== 'available' && !booth.exhibitor) {
+      return res.status(400).json({ message: 'Choose an exhibitor for a pending or booked booth' });
+    }
+
+    // save() runs the model's checks (e.g. a wrong status gets a 400)
+    await booth.save();
+
+    res.json(booth);
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Delete a booth (Admin only)
+const deleteBooth = async (req, res) => {
+  try {
+    const booth = await Booth.findByIdAndDelete(req.params.id);
+
+    if (!booth) {
+      return res.status(404).json({ message: 'Booth not found' });
+    }
+
+    res.json({ message: 'Booth deleted' });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Owner exhibitor edits their booth's products and staff
+const updateBoothDetails = async (req, res) => {
+  try {
+    const booth = await Booth.findById(req.params.id);
+
+    if (!booth) {
+      return res.status(404).json({ message: 'Booth not found' });
+    }
+
+    // Only the exhibitor who holds this booth may change it
+    if (!booth.exhibitor || !booth.exhibitor.equals(req.user._id)) {
+      return res.status(403).json({ message: 'This is not your booth' });
+    }
+
+    const { productsShowcase, staff } = req.body;
+
+    if (staff !== undefined && !Array.isArray(staff)) {
+      return res.status(400).json({ message: 'staff must be a list' });
+    }
+
+    if (productsShowcase !== undefined) booth.productsShowcase = productsShowcase;
+    if (staff !== undefined) booth.staff = staff;
+
+    // save() checks that every staff member has a name
+    await booth.save();
+
+    res.json(booth);
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Booths held by the logged-in exhibitor (pending + booked)
+const getMyBooths = async (req, res) => {
+  try {
+    const booths = await Booth.find({ exhibitor: req.user._id })
+      .populate('expo', 'title location startDate endDate');
+
+    res.json(booths);
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Count one view of a booth (an attendee opened it on the floor map)
+const addBoothView = async (req, res) => {
+  try {
+    const booth = await Booth.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { views: 1 } },
+      { new: true }
+    );
+
+    if (!booth) {
+      return res.status(404).json({ message: 'Booth not found' });
+    }
+
+    res.json({ views: booth.views });
+  } catch (error) {
+    sendError(res, error);
   }
 };
 
@@ -192,19 +418,19 @@ const searchExhibitors = async (req, res) => {
       query.$or = [
         {
           companyName: {
-            $regex: keyword,
+            $regex: escapeRegex(keyword),
             $options: 'i',
           },
         },
         {
           companyCategory: {
-            $regex: keyword,
+            $regex: escapeRegex(keyword),
             $options: 'i',
           },
         },
         {
           name: {
-            $regex: keyword,
+            $regex: escapeRegex(keyword),
             $options: 'i',
           },
         },
@@ -215,7 +441,7 @@ const searchExhibitors = async (req, res) => {
 
     res.json(exhibitors);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
   }
 };
 
@@ -223,9 +449,17 @@ const searchExhibitors = async (req, res) => {
 module.exports = {
   createExpo,
   getAllExpos,
+  getExpoById,
+  updateExpo,
+  deleteExpo,
   createBooth,
   getBoothsByExpo,
   requestBooth,
   approveBooth,
+  updateBooth,
+  deleteBooth,
+  updateBoothDetails,
+  getMyBooths,
+  addBoothView,
   searchExhibitors,
 };

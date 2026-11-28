@@ -5,9 +5,12 @@ const router = express.Router();
 // Import session and attendee controller functions
 const {
   createSession,
+  updateSession,
+  deleteSession,
   getSessions,
   registerForExpo,
   bookmarkSession,
+  unbookmarkSession,
   getMyScheduleAndRecommendations,
 } = require('../controllers/sessionAttendeeController');
 
@@ -27,6 +30,12 @@ router.post(
   authorizeRoles('admin'),
   createSession
 );
+
+// Update a session (Admin only)
+router.put('/sessions/:id', protect, authorizeRoles('admin'), updateSession);
+
+// Delete a session (Admin only)
+router.delete('/sessions/:id', protect, authorizeRoles('admin'), deleteSession);
 
 // Get all sessions with topic and title search
 // Example: /api/sessions?topic=AI&search=Future
@@ -52,6 +61,14 @@ router.post(
   protect,
   authorizeRoles('attendee'),
   bookmarkSession
+);
+
+// Remove a session from the attendee's personal schedule
+router.delete(
+  '/attendee/bookmark-session/:sessionId',
+  protect,
+  authorizeRoles('attendee'),
+  unbookmarkSession
 );
 
 // Get personal schedule and recommended sessions

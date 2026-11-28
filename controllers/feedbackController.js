@@ -1,5 +1,6 @@
 
 const Feedback = require('../models/Feedback');
+const { sendError } = require('../utils/validate');
 
 // Submit feedback for an expo (Attendee/Exhibitor)
 const submitFeedback = async (req, res) => {
@@ -19,9 +20,7 @@ const submitFeedback = async (req, res) => {
       feedback,
     });
   } catch (error) {
-    res.status(500).json({
-      message: error.message,
-    });
+    sendError(res, error);
   }
 };
 
@@ -35,9 +34,7 @@ const getAllFeedbacks = async (req, res) => {
 
     res.json(feedbacks);
   } catch (error) {
-    res.status(500).json({
-      message: error.message,
-    });
+    sendError(res, error);
   }
 };
 
@@ -63,9 +60,7 @@ const replyFeedback = async (req, res) => {
       feedback,
     });
   } catch (error) {
-    res.status(500).json({
-      message: error.message,
-    });
+    sendError(res, error);
   }
 };
 

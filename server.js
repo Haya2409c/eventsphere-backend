@@ -7,14 +7,30 @@ dotenv.config();
 
 const app = express();
 
+// Only our frontend may call the API. CLIENT_URL can list several, comma-separated.
+const allowedOrigins = (process.env.CLIENT_URL || '')
+  .split(',')
+  .map((url) => url.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+if (allowedOrigins.length === 0) {
+  console.warn('⚠️  CLIENT_URL is not set: the browser will block every request from the frontend (CORS).');
+}
+
 app.use(cors({
-  origin: true,
-  credentials: true,
+  origin: allowedOrigins,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 app.use(express.json());
+
+// Express 5 leaves req.body undefined when no JSON was sent; use {} so
+// controllers give a clear 400 instead of crashing with a 500
+app.use((req, res, next) => {
+  req.body ??= {};
+  next();
+});
 
 // Har request se pehle DB connection ensure karein (Serverless safe)
 app.use(async (req, res, next) => {
@@ -38,7 +54,8 @@ app.get('/', (req, res) => {
   res.send('🚀 EventSphere Management API is running...');
 });
 
-if (process.env.NODE_ENV !== 'production') {
+// Don't start a server on Vercel (production) or in tests (Supertest calls the app directly)
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => console.log(`🔥 Server running on port ${PORT}`));
 }

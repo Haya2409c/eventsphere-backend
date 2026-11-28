@@ -51,6 +51,21 @@ const boothSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+
+    // People working at the booth (set by the owner exhibitor)
+    staff: [
+      {
+        _id: false,
+        name: { type: String, required: [true, 'Staff name is required'], trim: true },
+        role: { type: String, default: '', trim: true },
+      },
+    ],
+
+    // How many times attendees opened this booth on the floor map
+    views: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

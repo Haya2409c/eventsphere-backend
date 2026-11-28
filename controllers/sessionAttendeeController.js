@@ -1,15 +1,64 @@
 
 const Session = require('../models/Session');
 const Expo = require('../models/Expo');
+const { escapeRegex, rejectMissing, sendError } = require('../utils/validate');
+
+// Fields an admin may set on a session (the client can't set registeredAttendees)
+const SESSION_FIELDS = [
+  'expo', 'title', 'description', 'speakerName', 'topic',
+  'hallLocation', 'date', 'startTime', 'endTime',
+];
 
 // Create a new workshop or session (Admin only)
 const createSession = async (req, res) => {
   try {
-    const session = await Session.create(req.body);
+    if (rejectMissing(res, req.body, SESSION_FIELDS)) return;
+
+    const data = {};
+    SESSION_FIELDS.forEach((field) => { data[field] = req.body[field]; });
+
+    const session = await Session.create(data);
 
     res.status(201).json(session);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
+  }
+};
+
+// Update a session (Admin only). Only the fields sent are changed.
+const updateSession = async (req, res) => {
+  try {
+    const session = await Session.findById(req.params.id);
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    SESSION_FIELDS.forEach((field) => {
+      if (req.body[field] !== undefined) session[field] = req.body[field];
+    });
+
+    // save() runs the model's checks, so an empty field still gets a 400
+    await session.save();
+
+    res.json(session);
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+// Delete a session (Admin only)
+const deleteSession = async (req, res) => {
+  try {
+    const session = await Session.findByIdAndDelete(req.params.id);
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    res.json({ message: 'Session deleted' });
+  } catch (error) {
+    sendError(res, error);
   }
 };
 
@@ -28,7 +77,7 @@ const getSessions = async (req, res) => {
     // Search sessions by topic
     if (topic) {
       query.topic = {
-        $regex: topic,
+        $regex: escapeRegex(topic),
         $options: 'i',
       };
     }
@@ -36,7 +85,7 @@ const getSessions = async (req, res) => {
     // Search sessions by title
     if (search) {
       query.title = {
-        $regex: search,
+        $regex: escapeRegex(search),
         $options: 'i',
       };
     }
@@ -48,7 +97,7 @@ const getSessions = async (req, res) => {
 
     res.json(sessions);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
   }
 };
 
@@ -82,7 +131,7 @@ const registerForExpo = async (req, res) => {
       expoTitle: expo.title,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
   }
 };
 
@@ -115,7 +164,30 @@ const bookmarkSession = async (req, res) => {
       session,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
+  }
+};
+
+// Remove a session from the attendee's personal schedule
+const unbookmarkSession = async (req, res) => {
+  try {
+    // $pull removes this user's ID from the list (does nothing if it's not there)
+    const session = await Session.findByIdAndUpdate(
+      req.params.sessionId,
+      { $pull: { registeredAttendees: req.user._id } },
+      { new: true }
+    );
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    res.json({
+      message: 'Session removed from your personal schedule',
+      session,
+    });
+  } catch (error) {
+    sendError(res, error);
   }
 };
 
@@ -133,7 +205,7 @@ const getMyScheduleAndRecommendations = async (req, res) => {
     // Find sessions matching the user's interests
     const recommendedSessions = await Session.find({
       topic: {
-        $in: userInterests.map((interest) => new RegExp(interest, 'i')),
+        $in: userInterests.map((interest) => new RegExp(escapeRegex(interest), 'i')),
       },
     }).populate('expo', 'title');
 
@@ -143,15 +215,18 @@ const getMyScheduleAndRecommendations = async (req, res) => {
       recommendedSessions,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendError(res, error);
   }
 };
 
 // Export all session controller functions
 module.exports = {
   createSession,
+  updateSession,
+  deleteSession,
   getSessions,
   registerForExpo,
   bookmarkSession,
+  unbookmarkSession,
   getMyScheduleAndRecommendations,
 };
